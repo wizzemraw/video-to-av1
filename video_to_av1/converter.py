@@ -3,6 +3,7 @@
 import subprocess
 import logging
 import shutil
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -106,11 +107,29 @@ class VideoConverter:
         ]
     
     def _parse_ffmpeg_progress(self, line: str) -> Optional[float]:
-        """Parse progress from ffmpeg output. Returns time in seconds."""
+        """Parse progress from ffmpeg output. Returns time in seconds.
+        
+        Note: despite its name, ffmpeg's "out_time_ms" field in -progress
+        output is actually reported in MICROSECONDS, not milliseconds (a
+        long-standing quirk in ffmpeg itself). Treating it as milliseconds
+        inflates elapsed time by 1000x, causing the progress bar to jump
+        straight to 100% almost immediately while the encode keeps running.
+        We also fall back to the "out_time=" timestamp field, since
+        "out_time_ms" is sometimes reported as -1/N/A during flush cycles.
+        """
         try:
             if line.startswith("out_time_ms="):
-                time_ms = int(line.split("=")[1])
-                return time_ms / 1000.0
+                raw = line.split("=", 1)[1].strip()
+                if raw not in ("", "N/A", "-1"):
+                    time_us = int(raw)
+                    if time_us >= 0:
+                        return time_us / 1_000_000.0
+            elif line.startswith("out_time="):
+                raw = line.split("=", 1)[1].strip()
+                # Format: HH:MM:SS.microseconds
+                if raw and raw != "N/A":
+                    h, m, s = raw.split(":")
+                    return int(h) * 3600 + int(m) * 60 + float(s)
         except (ValueError, IndexError):
             pass
         return None
@@ -141,13 +160,42 @@ class VideoConverter:
                 bufsize=1
             )
             
-            # Progress bar
-            pbar = None
+            # ffmpeg writes a lot of diagnostic output to stderr. If we don't
+            # continuously drain it, the OS pipe buffer fills up and ffmpeg
+            # blocks on write() to stderr -- which stalls stdout (and thus
+            # -progress) too, since it's the same process. Drain it on a
+            # background thread so it never backs up.
+            stderr_lines: List[str] = []
+
+            def _drain_stderr(pipe):
+                try:
+                    for line in pipe:
+                        stderr_lines.append(line)
+                except Exception:
+                    pass
+
+            stderr_thread = threading.Thread(
+                target=_drain_stderr, args=(process.stderr,), daemon=True
+            )
+            stderr_thread.start()
+            
+            # Progress bar. If we know the duration, show a determinate bar
+            # in seconds; otherwise fall back to an indeterminate bar that
+            # still shows the process is alive (elapsed time / iterations)
+            # instead of silently showing nothing.
             if total_duration:
                 pbar = tqdm(
                     total=total_duration,
                     unit="s",
                     desc=input_file.name,
+                    leave=False,
+                    dynamic_ncols=True
+                )
+            else:
+                pbar = tqdm(
+                    total=None,
+                    unit="s",
+                    desc=f"{input_file.name} (duration unknown)",
                     leave=False,
                     dynamic_ncols=True
                 )
@@ -160,26 +208,29 @@ class VideoConverter:
                         break
                     
                     # Update progress bar
-                    if pbar:
-                        current_time = self._parse_ffmpeg_progress(line)
-                        if current_time is not None:
+                    current_time = self._parse_ffmpeg_progress(line)
+                    if current_time is not None:
+                        if total_duration:
                             pbar.n = min(current_time, total_duration)
+                            pbar.refresh()
+                        else:
+                            # Indeterminate: just report elapsed seconds encoded
+                            pbar.n = current_time
                             pbar.refresh()
                 
                 # Wait for process to complete
                 returncode = process.wait()
+                stderr_thread.join(timeout=5)
                 
-                if pbar:
-                    pbar.close()
+                pbar.close()
                 
                 if returncode != 0:
-                    stderr = process.stderr.read() if process.stderr else ""
-                    error_msg = stderr or "Unknown FFmpeg error"
+                    error_msg = "".join(stderr_lines).strip() or "Unknown FFmpeg error"
                     logger.error(f"FFmpeg error for {input_file.name}: {error_msg}")
                     return {
                         "file": input_file.name,
                         "success": False,
-                        "error": "FFmpeg conversion failed"
+                        "error": error_msg
                     }
                 
                 logger.info(f"✓ Converted: {output_file.name}")
@@ -190,8 +241,7 @@ class VideoConverter:
                 }
             
             finally:
-                if pbar:
-                    pbar.close()
+                pbar.close()
                 try:
                     process.terminate()
                 except:
