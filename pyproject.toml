@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-to-av1"
-version = "1.0.0"
+version = "1.0.1"
 description = "A fast and efficient CLI tool to convert videos to AV1 format using FFmpeg"
 readme = "README.md"
 license = {text = "MIT"}
@@ -34,6 +34,7 @@ classifiers = [
 dependencies = [
     "typer[all]>=0.9.0",
     "pyyaml>=6.0",
+    "tqdm>=4.65.0",
 ]
 
 [project.optional-dependencies]
