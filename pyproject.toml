@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-to-av1"
+version = "1.0.0"
+description = "A fast and efficient CLI tool to convert videos to AV1 format using FFmpeg"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "wizzemraw", email = "your-email@example.com"}
+]
+requires-python = ">=3.8"
+keywords = ["video", "av1", "conversion", "ffmpeg", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Video",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "typer[all]>=0.9.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.0",
+    "flake8>=6.0",
+    "mypy>=1.0",
+    "build>=0.10",
+    "twine>=4.0",
+]
+
+[project.scripts]
+video-to-av1 = "video_to_av1.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/wizzemraw/video-to-av1"
+Repository = "https://github.com/wizzemraw/video-to-av1.git"
+"Bug Tracker" = "https://github.com/wizzemraw/video-to-av1/issues"
+
+[tool.setuptools]
+packages = ["video_to_av1"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=video_to_av1 --cov-report=term-as-html"
